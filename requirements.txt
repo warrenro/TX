@@ -1,3 +1,4 @@
 shioaji
 pandas
 python-dotenv
+firebase-admin

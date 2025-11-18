@@ -79,3 +79,6 @@ dmypy.json
 .vscode/
 *.swp
 *~
+
+# Service Account Keys
+*service-account-key.json
