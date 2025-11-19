@@ -38,6 +38,7 @@
 ### 3.1 身份驗證 (Authentication)
 * **API 登入**: 系統需使用 `API_KEY` 與 `SECRET_KEY` 進行初始化登入。
 * **憑證簽章 (CA)**: 系統需讀取 `.pfx` 檔案路徑與密碼，執行 `activate_ca`。
+* **流量查詢**: 登入成功後，系統需自動呼叫 `api.usage()` 查詢並顯示目前的 API 流量使用狀況。
 * **安全規範**: 強烈建議使用 `.env` 檔案管理所有敏感資訊 (Keys/Passwords/Paths)。
 
 ### 3.2 合約選取與資料下載 (Contract & Data Retrieval)

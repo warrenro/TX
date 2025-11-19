@@ -39,7 +39,7 @@ if not (version.parse(REQUIRED_MIN_VERSION) <= current_version < version.parse(R
     logging.critical(f"偵測到您的 Shioaji 版本 ({current_version_str}) 與本腳本不相容。")
     logging.critical(f"本腳本需要 Shioaji 版本介於 {REQUIRED_MIN_VERSION} (含) 與 {REQUIRED_MAX_VERSION} (不含) 之間。")
     logging.critical(f"建議執行指令: pip install \"shioaji>={REQUIRED_MIN_VERSION},<{REQUIRED_MAX_VERSION}\"")
-    exit(1)
+    
 
 class TXFDownloader:
     """
@@ -73,6 +73,11 @@ class TXFDownloader:
         try:
             self.api.login(self.api_key, self.secret_key)
             logging.info("API 登入成功。")
+            
+            # 查詢並顯示 API 流量資訊
+            usage = self.api.usage()
+            logging.info(f"API 流量狀態: 已查詢 {usage} ")
+
         except Exception as e:
             logging.error(f"API 登入失敗: {e}")
             return False
