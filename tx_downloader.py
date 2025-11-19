@@ -504,10 +504,9 @@ def main():
         CERT_PATH = os.getenv("SHIOAJI_CERT_PATH", "C:/path/to/your/certificate.pfx")
         CERT_PASS = os.getenv("SHIOAJI_CERT_PASS", "YOUR_CERT_PASSWORD")
         
-        # **重要**: 請將您的 Firebase 服務帳號金鑰檔案命名為 'serviceAccountKey.json'
-        #           並放置在與此腳本相同的目錄下。
-        #           或者，您也可以修改下面的路徑。
-        SERVICE_ACCOUNT_KEY_PATH = "serviceAccountKey.json"
+        # **重要**: 程式會從環境變數 'GOOGLE_APPLICATION_CREDENTIALS' 讀取金鑰路徑。
+        #           如果未設定，則預設嘗試讀取與腳本相同目錄下的 'serviceAccountKey.json'。
+        SERVICE_ACCOUNT_KEY_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "serviceAccountKey.json")
 
         # --- 取得使用者儲存與區間選擇 ---
         storage_choice = get_storage_choice()
