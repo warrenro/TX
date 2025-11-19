@@ -1,6 +1,8 @@
 # 台指期 1 分鐘 K 線資料自動下載器
 
-[![Python Script CI](https://github.com/weiyuanlo/TX/actions/workflows/python-ci.yml/badge.svg)](https://github.com/weiyuanlo/TX/actions/workflows/python-ci.yml)
+[![Python Project CI](https://github.com/weiyuanlo/TX/actions/workflows/python-ci.yml/badge.svg)](https://github.com/weiyuanlo/TX/actions/workflows/python-ci.yml)
+
+---
 
 本專案是一個 Python 腳本，用於自動從永豐金證券 (Sinopac) 的 **Shioaji API** 下載**台灣加權指數期貨 (TXF)** 的 1 分鐘 K 線 (1m OHLCV) 歷史資料。
 
@@ -10,6 +12,7 @@
 *   **互動式選單**: 提供簡單易懂的文字選單，讓使用者輕鬆選擇下載區間與儲存方式。
 *   **多樣化儲存**: 支援將下載的資料儲存為本地 CSV 檔案，或寫入 Google Cloud Firestore。
 *   **安全設定**: 使用 `.env` 檔案來管理敏感的帳號資訊，避免將 API Keys 或密碼直接寫在程式碼中。
+*   **自動化測試**: 整合 GitHub Actions，在每次提交時自動執行單元測試，確保程式碼品質。
 *   **版本相容性**: 內建版本檢查機制，確保腳本在合適的 `shioaji` 版本下運行。
 *   **流量監控**: 登入後自動顯示 API 流量使用狀況，幫助使用者掌握用量。
 *   **穩健的資料獲取**: 採用「先下載逐筆成交 (Ticks)，再手動轉換為 K 線」的策略，以應對不同 API 版本的介面差異。
@@ -51,12 +54,6 @@
 ```bash
 python3 tx_downloader.py
 ```
-
-程式預設會執行兩個範例：
-1.  下載近 5 天的**近月合約**資料。
-2.  下載近 30 天的**連續月**資料。
-
-下載的資料會同時儲存到您設定的 **Firestore** 資料庫以及本地的 **CSV** 檔案中。
 
 ---
 
