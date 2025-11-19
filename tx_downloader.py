@@ -348,6 +348,9 @@ def main():
         CERT_PATH = os.getenv("SHIOAJI_CERT_PATH", "C:/path/to/your/certificate.pfx")
         CERT_PASS = os.getenv("SHIOAJI_CERT_PASS", "YOUR_CERT_PASSWORD")
         
+        print(API_KEY) 
+        print(SECRET_KEY)
+
         # **重要**: 請將您的 Firebase 服務帳號金鑰檔案命名為 'serviceAccountKey.json'
         #           並放置在與此腳本相同的目錄下。
         #           或者，您也可以修改下面的路徑。
