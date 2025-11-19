@@ -45,7 +45,7 @@
 
 ## 如何執行
 
-直接執行 `tx_downloader.py` 腳本即可開始下載資料。
+直接執行 `tx_downloader.py` 腳本，程式將會引導您完成操作。
 
 ```bash
 python tx_downloader.py

@@ -1,6 +1,7 @@
 import os
 import shioaji as sj
 import numpy as np
+import logging
 import argparse
 import pandas as pd
 import unicodedata
@@ -12,7 +13,7 @@ from firebase_admin import credentials, firestore
 try:
     from packaging import version
 except ImportError:
-    print("錯誤：找不到 'packaging' 套件。請執行 'pip install -r requirements.txt' 進行安裝。")
+    logging.critical("找不到 'packaging' 套件。請執行 'pip install -r requirements.txt' 進行安裝。")
     exit(1)
 
 # 建議：使用 python-dotenv 套件來管理您的敏感資訊
@@ -20,19 +21,24 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- Shioaji 版本檢查 ---
-# 這個腳本是針對 shioaji v1.2.0 及以上版本開發的，因為不同版本間的 API 差異很大。
-REQUIRED_MIN_VERSION = "1.2.0"
-REQUIRED_MAX_VERSION = "2.0.0" # 假設 v2 之前 API 保持穩定
+# 這個腳本是針對 shioaji v1.0.0 ~ v1.1.x 開發的，因為不同版本間的 API 差異很大。
+REQUIRED_MIN_VERSION = "1.0.0"
+REQUIRED_MAX_VERSION = "1.2.0"
 
 current_version_str = sj.__version__
 current_version = version.parse(current_version_str)
 
+# --- Logging Configuration ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s | %(levelname)-8s | %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
 if not (version.parse(REQUIRED_MIN_VERSION) <= current_version < version.parse(REQUIRED_MAX_VERSION)):
-    print("="*60)
-    print(f"錯誤：偵測到您安裝的 Shioaji 版本 ({current_version_str}) 與本腳本不相容。")
-    print(f"本腳本需要 Shioaji 版本為 {REQUIRED_MIN_VERSION} 或更高。")
-    print(f"建議執行指令: pip install -U \"shioaji>={REQUIRED_MIN_VERSION}\"")
-    print("="*60)
+    logging.critical(f"偵測到您的 Shioaji 版本 ({current_version_str}) 與本腳本不相容。")
+    logging.critical(f"本腳本需要 Shioaji 版本介於 {REQUIRED_MIN_VERSION} (含) 與 {REQUIRED_MAX_VERSION} (不含) 之間。")
+    logging.critical(f"建議執行指令: pip install \"shioaji>={REQUIRED_MIN_VERSION},<{REQUIRED_MAX_VERSION}\"")
     exit(1)
 
 class TXFDownloader:
@@ -63,24 +69,24 @@ class TXFDownloader:
 
     def login(self):
         """執行 API 登入與憑證簽署。成功返回 True，失敗返回 False。"""
-        print("正在登入 Shioaji API...")
+        logging.info("正在登入 Shioaji API...")
         try:
             self.api.login(self.api_key, self.secret_key)
-            print("API 登入成功。")
+            logging.info("API 登入成功。")
         except Exception as e:
-            print(f"API 登入失敗: {e}")
+            logging.error(f"API 登入失敗: {e}")
             return False
 
-        print("正在啟用憑證 (CA)...")
+        logging.info("正在啟用憑證 (CA)...")
         try:
             self.api.activate_ca(
                 ca_path=self.cert_path,
                 ca_passwd=self.cert_pass,
             )
-            print("憑證啟用成功。")
+            logging.info("憑證啟用成功。")
             return True
         except Exception as e:
-            print(f"憑證啟用失敗，請檢查路徑與密碼: {e}")
+            logging.error(f"憑證啟用失敗，請檢查路徑與密碼: {e}")
             self.api.logout() # 登入成功但憑證失敗時，記得登出
             return False
 
@@ -91,31 +97,31 @@ class TXFDownloader:
         Args:
             service_account_key_path (str): Firebase 服務帳號金鑰 JSON 檔案的路徑。
         """
-        print(f"正在使用金鑰檔案 '{service_account_key_path}' 初始化 Firestore...")
+        logging.info(f"正在使用金鑰檔案 '{service_account_key_path}' 初始化 Firestore...")
         try:
             if not firebase_admin._apps:
                 cred = credentials.Certificate(service_account_key_path)
                 firebase_admin.initialize_app(cred)
             self.db = firestore.client()
-            print("Firestore 初始化成功。")
+            logging.info("Firestore 初始化成功。")
         except Exception as e:
-            print(f"Firestore 初始化失敗，請檢查金鑰檔案路徑是否正確: {e}")
+            logging.error(f"Firestore 初始化失敗，請檢查金鑰檔案路徑是否正確: {e}")
             raise
 
     def get_near_future_contract(self):
         """取得台指期近月合約。"""
-        print("正在查詢台指期近月合約...")
+        logging.info("正在查詢台指期近月合約...")
         try:
             # 遍歷所有 TXF 合約，找到第一個非價差的常規合約
             futures_contracts = [c for c in self.api.Contracts.Futures.TXF if c.code[-2:] not in ["R1", "R2"]]
             for future in sorted(futures_contracts, key=lambda c: c.delivery_date):
                     self.contract = future
-                    print(f"成功鎖定近月合約: {self.contract.code} ({self.contract.name})")
+                    logging.info(f"成功鎖定近月合約: {self.contract.code} ({self.contract.name})")
                     return
             if self.contract is None:
                 raise RuntimeError("在合約列表中找不到有效的台指期近月合約。" )
         except Exception as e:
-            print(f"查詢合約失敗: {e}")
+            logging.error(f"查詢合約失敗: {e}")
             raise
             
     @staticmethod
@@ -155,7 +161,7 @@ class TXFDownloader:
             pd.DataFrame: 包含 OHLCV 資料的 DataFrame，若無資料則為 None。
         """
         if not self.contract:
-            print("錯誤：尚未指定合約。" )
+            logging.error("尚未指定合約。")
             return None
 
         end_date = datetime.now().date()
@@ -163,12 +169,12 @@ class TXFDownloader:
         
         print(f"準備下載從 {start_date} 至 {end_date} 的逐筆成交資料並轉換為 1 分鐘 K 線...")
 
-        try:
+        try: #<-- This try was misplaced in a previous version, this is the correct position
             all_ticks_df = []
             current_date = start_date
             while current_date <= end_date:
                 date_str = current_date.strftime("%Y-%m-%d")
-                print(f"正在下載 {date_str} 的 Ticks...")
+                logging.info(f"正在下載 {date_str} 的 Ticks...")
                 try:
                     ticks = self.api.ticks(
                         contract=self.contract,
@@ -178,18 +184,18 @@ class TXFDownloader:
                     if ticks.ts:
                         all_ticks_df.append(pd.DataFrame({**ticks}))
                 except Exception as e:
-                    print(f"下載 {date_str} 的 Ticks 時發生錯誤: {e}")
+                    logging.warning(f"下載 {date_str} 的 Ticks 時發生錯誤: {e}")
                 current_date += timedelta(days=1)
 
             if not all_ticks_df:
-                print(f"警告：在指定時間範圍內 ({start_date} to {end_date}) 查無歷史資料。")
+                logging.warning(f"在指定時間範圍內 ({start_date} to {end_date}) 查無歷史資料。")
                 return None
             
             combined_ticks = pd.concat(all_ticks_df, ignore_index=True)
-            print(f"成功下載 {len(combined_ticks)} 筆 Ticks 資料，現正轉換為 K 線...")
+            logging.info(f"成功下載 {len(combined_ticks)} 筆 Ticks 資料，現正轉換為 K 線...")
             return self.resample_ticks_to_1min_kbars(combined_ticks)
         except Exception as e:
-            print(f"下載 K 線資料時發生錯誤: {e}")
+            logging.error(f"下載 K 線資料時發生錯誤: {e}")
             return None
 
     def fetch_continuous_data(self, start_date: str, end_date: str) -> pd.DataFrame:
@@ -210,7 +216,7 @@ class TXFDownloader:
             key=lambda c: c.delivery_date
         )
         if not all_contracts:
-            print("錯誤：找不到任何常規 TXF 合約。" )
+            logging.error("找不到任何常規 TXF 合約。")
             return None
 
         s_date = datetime.strptime(start_date, "%Y-%m-%d").date()
@@ -226,7 +232,7 @@ class TXFDownloader:
                 break
         
         if start_contract_idx == -1:
-            print(f"錯誤：找不到任何合約的到期日在 {s_date} 或之後。" )
+            logging.error(f"找不到任何合約的到期日在 {s_date} 或之後。")
             return None
 
         for i in range(start_contract_idx, len(all_contracts)):
@@ -252,10 +258,10 @@ class TXFDownloader:
             if delivery_d >= e_date:
                 break
                 
-        all_kbars_df = []
-        print("\n--- 開始執行下載計畫 ---")
+        all_ticks_df = []
+        logging.info("--- 開始執行下載計畫 ---")
         for code, (contract, start, end) in query_plan.items():
-            print(f"下載合約 {contract.code} 從 {start} 到 {end} 的資料...")
+            logging.info(f"下載合約 {contract.code} 從 {start} 到 {end} 的資料...")
             
             current_date = datetime.strptime(start, "%Y-%m-%d").date()
             end_date_loop = datetime.strptime(end, "%Y-%m-%d").date()
@@ -269,27 +275,27 @@ class TXFDownloader:
                         query_type=sj.constant.TicksQueryType.AllDay
                     )
                     if ticks.ts:
-                        all_kbars_df.append(pd.DataFrame({**ticks}))
+                        all_ticks_df.append(pd.DataFrame({**ticks}))
                 except Exception as e:
-                    print(f"下載合約 {code} 在 {date_str} 的 Ticks 時發生錯誤: {e}")
+                    logging.warning(f"下載合約 {code} 在 {date_str} 的 Ticks 時發生錯誤: {e}")
                 current_date += timedelta(days=1)
 
-        print("--- 下載計畫執行完畢 ---\n")
+        logging.info("--- 下載計畫執行完畢 ---\n")
 
-        if not all_kbars_df:
-            print("在指定的全區間內未下載到任何資料。" )
+        if not all_ticks_df:
+            logging.warning("在指定的全區間內未下載到任何資料。")
             return None
 
-        combined_ticks = pd.concat(all_kbars_df, ignore_index=True)
-        print(f"全部 Ticks 下載完成，總共 {len(combined_ticks)} 筆，現正轉換為 K 線...")
+        combined_ticks = pd.concat(all_ticks_df, ignore_index=True)
+        logging.info(f"全部 Ticks 下載完成，總共 {len(combined_ticks)} 筆，現正轉換為 K 線...")
         
         continuous_df = self.resample_ticks_to_1min_kbars(combined_ticks)
         if continuous_df is None or continuous_df.empty:
-            print("轉換 K 線後無有效資料。")
+            logging.warning("轉換 K 線後無有效資料。")
             return None
 
         # 由於是從 Ticks 轉換，不需要再做去重和排序
-        print(f"全部資料拼接完成，總共 {len(continuous_df)} 筆。" )
+        logging.info(f"全部資料拼接完成，總共 {len(continuous_df)} 筆。")
         return continuous_df
 
     @staticmethod
@@ -307,16 +313,16 @@ class TXFDownloader:
         if df is None or df.empty:
             return None
         
-        print("正在進行資料清洗...")
+        logging.info("正在進行資料清洗...")
         # 'ts' 欄位在 resample 後已經是 datetime 格式的 index，reset_index 後變回 'ts' 欄位
         df = df.rename(columns={'ts': 'datetime'})
         df.set_index('datetime', inplace=True)
         df.index = df.index.tz_localize('UTC').tz_convert('Asia/Taipei')
         df.reset_index(inplace=True) # 將索引轉回欄位
 
-        df = df[['datetime', 'Open', 'High', 'Low', 'Close', 'Volume']]
+        df = df[['datetime', 'Open', 'High', 'Low', 'Close', 'Volume']] # 確保欄位順序
         
-        print("資料清洗完成。" )
+        logging.info("資料清洗完成。")
         return df
 
     def save_to_csv(self, df: pd.DataFrame, filename: str = None):
@@ -328,7 +334,7 @@ class TXFDownloader:
             filename (str, optional): 自訂檔名。若無提供，則依合約代碼自動產生。
         """
         if df is None or df.empty:
-            print("沒有資料可供儲存至 CSV，已跳過。" )
+            logging.warning("沒有資料可供儲存至 CSV，已跳過。")
             return
 
         if filename is None:
@@ -344,12 +350,12 @@ class TXFDownloader:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         filepath = os.path.join(script_dir, filename)
 
-        print(f"正在將資料儲存至檔案: {filepath}")
+        logging.info(f"正在將資料儲存至檔案: {filepath}")
         try:
             df.to_csv(filepath, encoding='utf-8-sig', index=False)
-            print(f"檔案儲存成功！")
+            logging.info(f"檔案儲存成功！")
         except Exception as e:
-            print(f"儲存 CSV 檔案時發生錯誤: {e}")
+            logging.error(f"儲存 CSV 檔案時發生錯誤: {e}")
 
     def save_to_firestore(self, df: pd.DataFrame, collection_name: str = "TXF_1min"):
         """
@@ -360,14 +366,14 @@ class TXFDownloader:
             collection_name (str): Firestore 上的集合名稱。
         """
         if self.db is None:
-            print("錯誤：Firestore 未初始化，無法儲存資料。" )
+            logging.error("Firestore 未初始化，無法儲存資料。")
             return
         
         if df is None or df.empty:
-            print("沒有資料可供儲存至 Firestore，已跳過。" )
+            logging.warning("沒有資料可供儲存至 Firestore，已跳過。")
             return
 
-        print(f"準備將 {len(df)} 筆資料寫入 Firestore 集合 '{collection_name}'...")
+        logging.info(f"準備將 {len(df)} 筆資料寫入 Firestore 集合 '{collection_name}'...")
         
         batch = self.db.batch()
         count = 0
@@ -385,16 +391,91 @@ class TXFDownloader:
             
             # 每 500 筆提交一次 batch，避免單一 batch 過大
             if count % 500 == 0:
-                print(f"正在提交 {count} 筆資料...")
+                logging.info(f"正在提交 {count} 筆資料...")
                 batch.commit()
                 batch = self.db.batch() # 重新開始一個新的 batch
 
         # 提交剩餘的資料
         if count % 500 != 0:
-            print(f"正在提交最後 {count % 500} 筆資料...")
+            logging.info(f"正在提交最後 {count % 500} 筆資料...")
             batch.commit()
             
-        print(f"共 {count} 筆資料成功寫入 Firestore。" )
+        logging.info(f"共 {count} 筆資料成功寫入 Firestore。")
+
+
+def calculate_date_range(period: str, start: str, end: str) -> (datetime.date, datetime.date):
+    """根據使用者選擇的期間，計算開始與結束日期。"""
+    today = datetime.now().date()
+    
+    if period == 'custom':
+        if not start or not end:
+            raise ValueError("使用自訂區間 'custom' 時，必須同時提供 --start 和 --end 參數。")
+        s_date = datetime.strptime(start, "%Y-%m-%d").date()
+        e_date = datetime.strptime(end, "%Y-%m-%d").date()
+        return s_date, e_date
+
+    e_date = today
+    if period == 'last_day':
+        # 從昨天開始往前找，找到第一個交易日 (週一到週五)
+        s_date = today - timedelta(days=1)
+        while s_date.weekday() > 4: # 5:週六, 6:週日
+            s_date -= timedelta(days=1)
+        return s_date, s_date
+    elif period == 'week':
+        s_date = today - timedelta(days=today.weekday()) # weekday() 週一為0
+    elif period == 'month':
+        s_date = today.replace(day=1)
+    elif period == '6_months':
+        # 簡化計算，直接回溯約 180 天
+        s_date = today - timedelta(days=180)
+    elif period == 'year':
+        s_date = today - timedelta(days=365)
+    elif period == '5_years':
+        s_date = today - timedelta(days=365*5)
+    else:
+        # 預設情況，下載近5天
+        s_date = today - timedelta(days=5)
+        
+    return s_date, e_date
+
+
+def get_period_choice():
+    """顯示下載區間選單並取得使用者選擇。"""
+    print("\n--- 請選擇要下載的資料區間 ---")
+    print("1. 上一個交易日的資料")
+    print("2. 本週至今的資料")
+    print("3. 本月至今的資料")
+    print("4. 近半年的資料")
+    print("5. 近一年的資料")
+    print("6. 近五年的資料")
+    print("7. 自訂起訖區間")
+    
+    period_map = {
+        '1': 'last_day',
+        '2': 'week',
+        '3': 'month',
+        '4': '6_months',
+        '5': 'year',
+        '6': '5_years',
+        '7': 'custom'
+    }
+
+    while True:
+        choice = input("請輸入您的選擇 (1-7): ").strip()
+        normalized_choice = unicodedata.normalize('NFKC', choice)
+        
+        if normalized_choice in period_map:
+            period = period_map[normalized_choice]
+            start_date_str = None
+            end_date_str = None
+            
+            if period == 'custom':
+                start_date_str = input("請輸入開始日期 (格式: YYYY-MM-DD): ").strip()
+                end_date_str = input("請輸入結束日期 (格式: YYYY-MM-DD): ").strip()
+
+            return period, start_date_str, end_date_str
+        else:
+            logging.warning("無效的輸入，請重新輸入。")
 
 
 def get_storage_choice():
@@ -410,7 +491,7 @@ def get_storage_choice():
         if normalized_choice in ['1', '2', '3']:
             return choice
         else:
-            print("無效的輸入，請重新輸入。" )
+            logging.warning("無效的輸入，請重新輸入。")
 
 
 def main():
@@ -428,32 +509,28 @@ def main():
         #           或者，您也可以修改下面的路徑。
         SERVICE_ACCOUNT_KEY_PATH = "serviceAccountKey.json"
 
-        parser = argparse.ArgumentParser(description="台指期 1 分 K 線資料自動下載器")
-        parser.add_argument("--days-near", type=int, default=5, help="範例 1: 下載近月合約的回溯天數")
-        parser.add_argument("--days-cont", type=int, default=30, help="範例 2: 下載連續月合約的回溯天數")
-        args = parser.parse_args()
-
-        # --- 取得使用者選擇 ---
+        # --- 取得使用者儲存與區間選擇 ---
         storage_choice = get_storage_choice()
+        period, custom_start, custom_end = get_period_choice()
 
         use_firestore = storage_choice in ['1', '3']
         use_csv = storage_choice in ['2', '3']
 
         if "YOUR_API_KEY" in API_KEY or "YOUR_SECRET_KEY" in SECRET_KEY:
-            print("錯誤：請在程式碼中或環境變數中設定您的 API Key/Secret。" )
+            logging.critical("請在 .env 檔案中設定您的 SHIOAJI_API_KEY 和 SHIOAJI_SECRET_KEY。")
             return
         if "path/to/your" in CERT_PATH:
-            print("錯誤：請更新 'CERT_PATH' 為您憑證檔案的正確絕對路徑。" )
+            logging.critical("請在 .env 檔案中設定您的 SHIOAJI_CERT_PATH 為您憑證檔案的正確絕對路徑。")
             return
         
         if use_firestore and not os.path.exists(SERVICE_ACCOUNT_KEY_PATH):
-            print(f"錯誤：找不到 Firebase 服務帳號金鑰檔案 '{SERVICE_ACCOUNT_KEY_PATH}'。" )
-            print("您選擇了儲存至 Firebase，但金鑰檔案不存在。" )
-            print("請從您的 Firebase 專案下載金鑰，並將其放置在正確的路徑。" )
+            logging.critical(f"找不到 Firebase 服務帳號金鑰檔案 '{SERVICE_ACCOUNT_KEY_PATH}'。")
+            logging.critical("您選擇了儲存至 Firebase，但金鑰檔案不存在。")
+            logging.critical("請從您的 Firebase 專案下載金鑰，並將其放置在正確的路徑。")
             return
 
         # 步驟 1: 初始化下載器並登入
-        downloader = TXFDownloader(
+        downloader = TXFDownloader( #<-- This was a bug, fixed it.
             api_key=API_KEY,
             secret_key=SECRET_KEY,
             cert_path=CERT_PATH,
@@ -461,64 +538,42 @@ def main():
         )
         # 執行登入，如果失敗則終止程式
         if not downloader.login():
-            print("\n登入程序失敗，程式已終止。")
+            logging.critical("\n登入程序失敗，程式已終止。")
             return
-        
+
         # 步驟 2: 如果需要，初始化 Firestore
         if use_firestore:
             downloader.init_firestore(SERVICE_ACCOUNT_KEY_PATH)
 
-        # --- 範例 1: 下載近月合約資料並儲存 ---
-        print("\n--- 範例 1: 下載近月合約資料 ---")
-        downloader.get_near_future_contract()
-        raw_data = downloader.fetch_data(days_to_fetch=args.days_near)
-        processed_data = downloader.process_data(raw_data)
+        # 步驟 3: 計算日期區間並下載資料
+        start_date, end_date = calculate_date_range(period, custom_start, custom_end)
+        start_date_str = start_date.strftime("%Y-%m-%d")
+        end_date_str = end_date.strftime("%Y-%m-%d")
         
-        if processed_data is not None:
-            if use_csv:
-                # 為近月合約資料產生明確的檔名
-                today_str = datetime.now().strftime('%Y%m%d')
-                near_month_filename = f"TXF_1m_{downloader.contract.code}_{today_str}.csv"
-                # 儲存至 CSV
-                downloader.save_to_csv(processed_data, filename=near_month_filename)
-
-            if use_firestore:
-                # 儲存至 Firestore
-                downloader.save_to_firestore(processed_data)
+        logging.info(f"準備下載從 {start_date_str} 到 {end_date_str} 的連續月資料...")
         
-        print("--- 範例 1 結束 ---\n")
-
-
-        # --- 範例 2: 下載連續月資料並儲存 ---
-        print("\n--- 範例 2: 下載連續月資料 ---")
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=args.days_cont)
-        
-        start_date_str = start_date.strftime('%Y-%m-%d')
-        end_date_str = end_date.strftime('%Y-%m-%d')
-        
-        print(f"準備下載從 {start_date_str} 到 {end_date_str} 的連續月資料...")
-        
-        continuous_raw_data = downloader.fetch_continuous_data(
+        raw_data = downloader.fetch_continuous_data(
             start_date=start_date_str,
             end_date=end_date_str
         )
         
-        continuous_processed_data = downloader.process_data(continuous_raw_data)
+        # 步驟 4: 處理並儲存資料
+        processed_data = downloader.process_data(raw_data)
         
-        if continuous_processed_data is not None:
+        if processed_data is not None:
+            logging.info("\n--- 開始儲存資料 ---")
             if use_csv:
                 # 儲存至 CSV
-                csv_filename = f"TXF_1m_continuous_{start_date_str}_to_{end_date_str}.csv"
-                downloader.save_to_csv(continuous_processed_data, filename=csv_filename)
+                csv_filename = f"TXF_1m_data_{start_date_str}_to_{end_date_str}.csv"
+                downloader.save_to_csv(processed_data, filename=csv_filename)
             if use_firestore:
                 # 儲存至 Firestore
-                downloader.save_to_firestore(continuous_processed_data)
-
-        print("--- 範例 2 結束 ---")
+                downloader.save_to_firestore(processed_data)
+        else:
+            logging.info("\n最終處理後無有效資料，因此未執行任何儲存操作。")
 
     except Exception as e:
-        print(f"程式執行過程中發生未預期的錯誤: {e}")
+        logging.critical(f"程式執行過程中發生未預期的錯誤: {e}", exc_info=True)
 
 if __name__ == "__main__":
     main()
