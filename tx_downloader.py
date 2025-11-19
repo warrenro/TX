@@ -85,7 +85,7 @@ class TXFDownloader:
                     print(f"成功鎖定近月合約: {self.contract.code} ({self.contract.name})")
                     return
             if self.contract is None:
-                raise RuntimeError("在合約列表中找不到有效的台指期近月合約。")
+                raise RuntimeError("在合約列表中找不到有效的台指期近月合約。" )
         except Exception as e:
             print(f"查詢合約失敗: {e}")
             raise
@@ -101,7 +101,7 @@ class TXFDownloader:
             pd.DataFrame: 包含 OHLCV 資料的 DataFrame，若無資料則為 None。
         """
         if not self.contract:
-            print("錯誤：尚未指定合約。")
+            print("錯誤：尚未指定合約。" )
             return None
 
         end_date = datetime.now().date()
@@ -118,11 +118,11 @@ class TXFDownloader:
             )
             
             if not kbars.ts: # 檢查是否有資料回傳
-                print(f"警告：在指定時間範圍內 ({start_date} to {end_date}) 查無歷史資料。")
+                print(f"警告：在指定時間範圍內 ({start_date} to {end_date}) 查無歷史資料。" )
                 return None
 
             df = pd.DataFrame({**kbars})
-            print(f"成功下載 {len(df)} 筆資料。")
+            print(f"成功下載 {len(df)} 筆資料。" )
             return df
 
         except Exception as e:
@@ -147,7 +147,7 @@ class TXFDownloader:
             key=lambda c: c.delivery_date
         )
         if not all_contracts:
-            print("錯誤：找不到任何常規 TXF 合約。")
+            print("錯誤：找不到任何常規 TXF 合約。" )
             return None
 
         s_date = datetime.strptime(start_date, "%Y-%m-%d").date()
@@ -163,7 +163,7 @@ class TXFDownloader:
                 break
         
         if start_contract_idx == -1:
-            print(f"錯誤：找不到任何合約的到期日在 {s_date} 或之後。")
+            print(f"錯誤：找不到任何合約的到期日在 {s_date} 或之後。" )
             return None
 
         for i in range(start_contract_idx, len(all_contracts)):
@@ -203,23 +203,23 @@ class TXFDownloader:
                 if kbars.ts:
                     df = pd.DataFrame({**kbars})
                     all_kbars_df.append(df)
-                    print(f"成功下載 {len(df)} 筆資料。")
+                    print(f"成功下載 {len(df)} 筆資料。" )
                 else:
-                    print(f"合約 {contract.code} 在此區間 ({start} to {end}) 無資料。")
+                    print(f"合約 {contract.code} 在此區間 ({start} to {end}) 無資料。" )
             except Exception as e:
                 print(f"下載合約 {contract.code} 資料時發生錯誤: {e}")
         
         print("--- 下載計畫執行完畢 ---\n")
 
         if not all_kbars_df:
-            print("在指定的全區間內未下載到任何資料。")
+            print("在指定的全區間內未下載到任何資料。" )
             return None
 
         continuous_df = pd.concat(all_kbars_df, ignore_index=True)
         continuous_df.drop_duplicates(subset=['ts'], inplace=True)
         continuous_df.sort_values(by='ts', inplace=True)
         
-        print(f"全部資料拼接完成，總共 {len(continuous_df)} 筆。")
+        print(f"全部資料拼接完成，總共 {len(continuous_df)} 筆。" )
         return continuous_df
 
     @staticmethod
@@ -246,7 +246,7 @@ class TXFDownloader:
 
         df = df[['datetime', 'Open', 'High', 'Low', 'Close', 'Volume']]
         
-        print("資料清洗完成。")
+        print("資料清洗完成。" )
         return df
 
     def save_to_csv(self, df: pd.DataFrame, filename: str = None):
@@ -258,7 +258,7 @@ class TXFDownloader:
             filename (str, optional): 自訂檔名。若無提供，則依合約代碼自動產生。
         """
         if df is None or df.empty:
-            print("沒有資料可供儲存至 CSV，已跳過。")
+            print("沒有資料可供儲存至 CSV，已跳過。" )
             return
 
         if filename is None:
@@ -286,11 +286,11 @@ class TXFDownloader:
             collection_name (str): Firestore 上的集合名稱。
         """
         if self.db is None:
-            print("錯誤：Firestore 未初始化，無法儲存資料。")
+            print("錯誤：Firestore 未初始化，無法儲存資料。" )
             return
         
         if df is None or df.empty:
-            print("沒有資料可供儲存至 Firestore，已跳過。")
+            print("沒有資料可供儲存至 Firestore，已跳過。" )
             return
 
         print(f"準備將 {len(df)} 筆資料寫入 Firestore 集合 '{collection_name}'...")
@@ -320,7 +320,22 @@ class TXFDownloader:
             print(f"正在提交最後 {count % 500} 筆資料...")
             batch.commit()
             
-        print(f"共 {count} 筆資料成功寫入 Firestore。")
+        print(f"共 {count} 筆資料成功寫入 Firestore。" )
+
+
+def get_storage_choice():
+    """顯示選單並取得使用者儲存偏好。"""
+    print("\n--- 請選擇資料儲存方式 ---")
+    print("1. 僅儲存至 Firebase")
+    print("2. 僅儲存為 CSV 檔案")
+    print("3. 同時儲存至 Firebase 和 CSV")
+    
+    while True:
+        choice = input("請輸入您的選擇 (1/2/3): ").strip()
+        if choice in ['1', '2', '3']:
+            return choice
+        else:
+            print("無效的輸入，請重新輸入。" )
 
 
 def main():
@@ -338,15 +353,23 @@ def main():
         #           或者，您也可以修改下面的路徑。
         SERVICE_ACCOUNT_KEY_PATH = "serviceAccountKey.json"
 
+        # --- 取得使用者選擇 ---
+        storage_choice = get_storage_choice()
+
+        use_firestore = storage_choice in ['1', '3']
+        use_csv = storage_choice in ['2', '3']
+
         if "YOUR_API_KEY" in API_KEY or "YOUR_SECRET_KEY" in SECRET_KEY:
-            print("錯誤：請在程式碼中或環境變數中設定您的 API Key/Secret。")
+            print("錯誤：請在程式碼中或環境變數中設定您的 API Key/Secret。" )
             return
         if "path/to/your" in CERT_PATH:
-            print("錯誤：請更新 'CERT_PATH' 為您憑證檔案的正確絕對路徑。")
+            print("錯誤：請更新 'CERT_PATH' 為您憑證檔案的正確絕對路徑。" )
             return
-        if not os.path.exists(SERVICE_ACCOUNT_KEY_PATH):
-            print(f"錯誤：找不到 Firebase 服務帳號金鑰檔案 '{SERVICE_ACCOUNT_KEY_PATH}'。")
-            print("請從您的 Firebase 專案下載金鑰，並將其放置在正確的路徑。")
+        
+        if use_firestore and not os.path.exists(SERVICE_ACCOUNT_KEY_PATH):
+            print(f"錯誤：找不到 Firebase 服務帳號金鑰檔案 '{SERVICE_ACCOUNT_KEY_PATH}'。" )
+            print("您選擇了儲存至 Firebase，但金鑰檔案不存在。" )
+            print("請從您的 Firebase 專案下載金鑰，並將其放置在正確的路徑。" )
             return
 
         # 步驟 1: 初始化下載器並登入
@@ -358,8 +381,9 @@ def main():
         )
         downloader.login()
         
-        # 步驟 2: 初始化 Firestore
-        downloader.init_firestore(SERVICE_ACCOUNT_KEY_PATH)
+        # 步驟 2: 如果需要，初始化 Firestore
+        if use_firestore:
+            downloader.init_firestore(SERVICE_ACCOUNT_KEY_PATH)
 
         # --- 範例 1: 下載近月合約資料並儲存 ---
         print("\n--- 範例 1: 下載近月合約資料 ---")
@@ -367,10 +391,13 @@ def main():
         raw_data = downloader.fetch_data(days_to_fetch=5)
         processed_data = downloader.process_data(raw_data)
         
-        # 儲存至 CSV
-        downloader.save_to_csv(processed_data)
-        # 儲存至 Firestore
-        downloader.save_to_firestore(processed_data)
+        if processed_data is not None:
+            if use_csv:
+                # 儲存至 CSV
+                downloader.save_to_csv(processed_data)
+            if use_firestore:
+                # 儲存至 Firestore
+                downloader.save_to_firestore(processed_data)
         
         print("--- 範例 1 結束 ---\n")
 
@@ -393,11 +420,13 @@ def main():
         continuous_processed_data = downloader.process_data(continuous_raw_data)
         
         if continuous_processed_data is not None:
-            # 儲存至 CSV
-            csv_filename = f"TXF_1m_continuous_{start_date_str}_to_{end_date_str}.csv"
-            downloader.save_to_csv(continuous_processed_data, filename=csv_filename)
-            # 儲存至 Firestore
-            downloader.save_to_firestore(continuous_processed_data)
+            if use_csv:
+                # 儲存至 CSV
+                csv_filename = f"TXF_1m_continuous_{start_date_str}_to_{end_date_str}.csv"
+                downloader.save_to_csv(continuous_processed_data, filename=csv_filename)
+            if use_firestore:
+                # 儲存至 Firestore
+                downloader.save_to_firestore(continuous_processed_data)
 
         print("--- 範例 2 結束 ---")
 

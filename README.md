@@ -56,3 +56,22 @@ python tx_downloader.py
 2.  下載近 30 天的**連續月**資料。
 
 下載的資料會同時儲存到您設定的 **Firestore** 資料庫以及本地的 **CSV** 檔案中。
+
+---
+
+## 開發輔助 (Development Helper)
+
+本專案包含一個 `git_helper.sh` 腳本，旨在簡化開發過程中的 Git 操作與專案初始化。
+
+### 功能
+
+*   **自動化 Git 操作**: 協助執行 `git init`, `git add`, `git commit`, `git push` 等常用指令。
+*   **設定遠端儲存庫**: 如果尚未設定 `origin`，腳本會引導您新增遠端 GitHub 儲存庫 URL。
+*   **建立 `.gitignore`**: 如果專案中缺少 `.gitignore` 檔案，會自動生成一份適用於 Python 專案的預設版本。
+*   **整理工作流程檔案**: 自動將根目錄的 `.yml` 檔案移動到 `.github/workflows/` 目錄下。
+
+### 使用方式
+
+```bash
+bash git_helper.sh
+```
