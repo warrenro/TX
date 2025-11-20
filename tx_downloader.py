@@ -296,6 +296,11 @@ class TXFDownloader:
             return None
 
         combined_ticks = pd.concat(all_ticks_df, ignore_index=True)
+
+        # 根據使用者要求，如果查詢區間大於一週，則將合併後的 Ticks 按週儲存
+        if (e_date - s_date).days > 7:
+            self.save_weekly_ticks_to_csv(combined_ticks.copy())
+
         logging.info(f"全部 Ticks 下載完成，總共 {len(combined_ticks)} 筆，現正轉換為 K 線...")
         
         continuous_df = self.resample_ticks_to_1min_kbars(combined_ticks)
@@ -355,9 +360,11 @@ class TXFDownloader:
                 today_str = datetime.now().strftime('%Y%m%d')
                 filename = f"TXF_1m_data_{today_str}.csv"
 
-        # 確保檔案儲存在與腳本相同的目錄下
+        # 確保檔案儲存在 'tradedata' 資料夾下
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        filepath = os.path.join(script_dir, filename)
+        data_dir = os.path.join(script_dir, 'tradedata')
+        os.makedirs(data_dir, exist_ok=True)  # 確保資料夾存在
+        filepath = os.path.join(data_dir, filename)
 
         logging.info(f"正在將資料儲存至檔案: {filepath}")
         try:
@@ -381,9 +388,11 @@ class TXFDownloader:
 
         filename = f"TXF_ticks_{contract_code}_{date_str}.csv"
 
-        # 確保檔案儲存在與腳本相同的目錄下
+        # 確保檔案儲存在 'tradedata' 資料夾下
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        filepath = os.path.join(script_dir, filename)
+        data_dir = os.path.join(script_dir, 'tradedata')
+        os.makedirs(data_dir, exist_ok=True)  # 確保資料夾存在
+        filepath = os.path.join(data_dir, filename)
 
         logging.info(f"正在將 Ticks 資料儲存至檔案: {filepath}")
         try:
@@ -407,6 +416,66 @@ class TXFDownloader:
             logging.info(f"Ticks 檔案儲存成功！")
         except Exception as e:
             logging.error(f"儲存 Ticks CSV 檔案 '{filename}' 時發生錯誤: {e}")
+
+    def save_weekly_ticks_to_csv(self, ticks_df: pd.DataFrame):
+        """
+        將 Ticks DataFrame 按照週來分組，並分別儲存為 CSV 檔案。
+        """
+        if ticks_df is None or ticks_df.empty:
+            logging.warning("沒有 Ticks 資料可供按週儲存，已跳過。")
+            return
+
+        logging.info("正在將 Ticks 資料按週儲存...")
+        
+        # 確保 'ts' 欄位是 datetime 格式
+        ticks_df['ts'] = pd.to_datetime(ticks_df['ts'])
+        
+        # 設定 'ts' 為索引以進行分組
+        ticks_df.set_index('ts', inplace=True)
+        
+        # 按週分組 (W-MON 表示每週從星期一開始)
+        weekly_groups = ticks_df.groupby(pd.Grouper(freq='W-MON'))
+        
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        data_dir = os.path.join(script_dir, 'tradedata')
+        os.makedirs(data_dir, exist_ok=True)
+
+        for week_start_ts, group in weekly_groups:
+            if group.empty:
+                continue
+                
+            week_start_date = group.index.min().strftime('%Y-%m-%d')
+            week_end_date = group.index.max().strftime('%Y-%m-%d')
+            
+            filename = f"TXF_ticks_weekly_{week_start_date}_to_{week_end_date}.csv"
+            filepath = os.path.join(data_dir, filename)
+
+            logging.info(f"正在將 {week_start_date} 到 {week_end_date} 的 Ticks 資料儲存至檔案: {filepath}")
+            
+            group_to_save = group.reset_index()
+            
+            try:
+                # 處理時間轉換與欄位篩選
+                group_to_save['ts'] = pd.to_datetime(group_to_save['ts'])
+                group_to_save.set_index('ts', inplace=True)
+                group_to_save.index = group_to_save.index.tz_localize('UTC').tz_convert('Asia/Taipei')
+                group_to_save.reset_index(inplace=True)
+                group_to_save = group_to_save.rename(columns={'ts': 'datetime'})
+
+                if 'tick_type' not in group_to_save.columns:
+                    group_to_save['tick_type'] = 'Deal'
+
+                required_cols = ['datetime', 'close', 'volume', 'tick_type']
+                available_cols = [col for col in required_cols if col in group_to_save.columns]
+                group_to_save = group_to_save[available_cols]
+
+                group_to_save.to_csv(filepath, encoding='utf-8-sig', index=False)
+                logging.info(f"週次 Ticks 檔案儲存成功！")
+            except Exception as e:
+                logging.error(f"儲存週次 Ticks CSV 檔案 '{filename}' 時發生錯誤: {e}")
+                
+        # 恢復原始 DataFrame 的索引
+        ticks_df.reset_index(inplace=True)
 
     def save_to_firestore(self, df: pd.DataFrame, collection_name: str = "TXF_1min"):
         """

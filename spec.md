@@ -1,8 +1,8 @@
 # 軟體需求規格書 (Software Requirements Specification)
 # 專案名稱：台指期 1 分 K 線資料自動下載器 (Shioaji API)
 
-**版本**: 1.8
-**日期**: 2025-11-19
+**版本**: 1.9
+**日期**: 2025-11-20
 **作者**: Gemini AI Assistant (Collaborated with User)
 
 ---
@@ -84,6 +84,18 @@
   * **集合名稱**: 預設為 `TXF_1min`。
   * **文件 ID**: 使用 K 線的 `datetime` 作為文件唯一識別碼 (格式: `YYYY-MM-DD HH:MM:SS`)。
   * **批次寫入**: 為了提升效能，採用 `batch` 方式分批寫入資料。
+
+### 3.7 Tick 資料儲存策略 (Tick Data Storage Strategy)
+*   **儲存目錄**:
+    *   所有 Tick 資料的 CSV 檔案都應儲存於專案根目錄下的 `tradedata/` 資料夾中。
+    *   此 `tradedata/` 資料夾應被加入到 `.gitignore` 檔案中，以避免將大量的資料檔案提交至版本控制。
+*   **每日儲存**:
+    *   系統會為每個交易日的每個合約，儲存一個包含當日所有 Ticks 的 CSV 檔案。
+    *   **檔名規則**: `TXF_ticks_{合約}_{日期}.csv`。
+*   **長週期查詢的額外處理**:
+    *   當使用者請求的資料區間**大於 7 天**時，除了每日的 Tick 檔案外，系統會額外將所有下載的 Tick 資料按「週」為單位進行分批儲存。
+    *   **檔名規則**: `TXF_ticks_weekly_{週開始日期}_to_{週結束日期}.csv` (例如: `TXF_ticks_weekly_2025-11-10_to_2025-11-16.csv`)。
+    *   每週的起始日為週一。
 
 ---
 
