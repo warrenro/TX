@@ -1,7 +1,7 @@
 # 軟體需求規格書 (Software Requirements Specification)
 # 專案名稱：台指期 1 分 K 線資料自動下載器 (Shioaji API)
 
-**版本**: 1.2
+**版本**: 1.8
 **日期**: 2025-11-19
 **作者**: Gemini AI Assistant (Collaborated with User)
 
@@ -79,6 +79,7 @@
   * **編碼**: `utf-8-sig`。
   * **檔名規則**:
     *   `TXF_1m_data_{開始日期}_to_{結束日期}.csv`
+    *   `TXF_ticks_{合約}_{日期}.csv` (原始 Tick 資料)
 * **Firestore 寫入**:
   * **集合名稱**: 預設為 `TXF_1min`。
   * **文件 ID**: 使用 K 線的 `datetime` 作為文件唯一識別碼 (格式: `YYYY-MM-DD HH:MM:SS`)。
@@ -107,6 +108,14 @@
 | **Close** | Float | `22502.0` | 收盤價 |
 | **Volume** | Integer | `1540` | 成交量 (口) |
 
+### 4.3 原始 Tick 資料結構 (Raw Tick Data Structure)
+| 欄位名稱 | 資料類型 | 範例值 | 說明 |
+| :--- | :--- | :--- | :--- |
+| **datetime** | DateTime / Timestamp | `2025-11-19 09:00:00.123456` | Tick 時間 (已轉為台北時區) |
+| **close** | Float | `22500.0` | 成交價 |
+| **volume** | Integer | `1` | 單筆成交量 |
+| **tick_type** | String | `Deal` | Tick 類型 (Deal, Ask, Bid) |
+
 ---
 
 ## 5. 例外處理 (Exception Handling)
@@ -127,4 +136,11 @@
 *   **目的**: 統一團隊成員的提交習慣，降低手動操作的複雜度。
 
 ### 6.2 持續整合 (CI)
-*   **GitHub Actions**: (若有配置) 每次 `push` 到主要分支時，將自動觸發測試流程，確保程式碼品質。
+*   **GitHub Actions**: 每次 `push` 到主要分支時，將自動觸發測試流程，確保程式碼品質。
+
+### 6.3 自動化測試 (Automated Testing)
+*   **測試框架**: 本專案採用 Python 內建的 `unittest` 框架來編寫與執行單元測試。
+*   **測試範圍**: 測試案例涵蓋核心商業邏輯，例如 `resample_ticks_to_1min_kbars` 函式的正常與邊界情況。
+*   **執行方式**:
+    *   **本地執行**: 開發者可透過 `python -m unittest discover tests/` 指令在本機環境執行所有測試。
+    *   **CI/CD**: GitHub Actions 工作流程已設定在每次 `push` 和 `pull_request` 時自動執行所有單元測試，實現持續整合。

@@ -187,7 +187,9 @@ class TXFDownloader:
                         query_type=sj.constant.TicksQueryType.AllDay
                     )
                     if ticks.ts:
-                        all_ticks_df.append(pd.DataFrame({**ticks}))
+                        ticks_df = pd.DataFrame({**ticks})
+                        self.save_ticks_to_csv(ticks_df.copy(), self.contract.code, date_str)
+                        all_ticks_df.append(ticks_df)
                 except Exception as e:
                     logging.warning(f"下載 {date_str} 的 Ticks 時發生錯誤: {e}")
                 current_date += timedelta(days=1)
@@ -280,7 +282,9 @@ class TXFDownloader:
                         query_type=sj.constant.TicksQueryType.AllDay
                     )
                     if ticks.ts:
-                        all_ticks_df.append(pd.DataFrame({**ticks}))
+                        ticks_df = pd.DataFrame({**ticks})
+                        self.save_ticks_to_csv(ticks_df.copy(), contract.code, date_str)
+                        all_ticks_df.append(ticks_df)
                 except Exception as e:
                     logging.warning(f"下載合約 {code} 在 {date_str} 的 Ticks 時發生錯誤: {e}")
                 current_date += timedelta(days=1)
@@ -361,6 +365,48 @@ class TXFDownloader:
             logging.info(f"檔案儲存成功！")
         except Exception as e:
             logging.error(f"儲存 CSV 檔案時發生錯誤: {e}")
+
+    def save_ticks_to_csv(self, df: pd.DataFrame, contract_code: str, date_str: str):
+        """
+        將 Ticks DataFrame 儲存為 CSV 檔案。
+
+        Args:
+            df (pd.DataFrame): 準備儲存的 Ticks DataFrame。
+            contract_code (str): 合約代碼.
+            date_str (str): 日期字串 (YYYY-MM-DD).
+        """
+        if df is None or df.empty:
+            logging.warning(f"沒有 Ticks 資料可供儲存 ({contract_code} on {date_str})，已跳過。")
+            return
+
+        filename = f"TXF_ticks_{contract_code}_{date_str}.csv"
+
+        # 確保檔案儲存在與腳本相同的目錄下
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        filepath = os.path.join(script_dir, filename)
+
+        logging.info(f"正在將 Ticks 資料儲存至檔案: {filepath}")
+        try:
+            # 處理時間轉換與欄位篩選
+            df['ts'] = pd.to_datetime(df['ts'])
+            df.set_index('ts', inplace=True)
+            df.index = df.index.tz_localize('UTC').tz_convert('Asia/Taipei')
+            df.reset_index(inplace=True)
+            df = df.rename(columns={'ts': 'datetime'})
+
+            # 根據規格書篩選並排序欄位
+            if 'tick_type' not in df.columns:
+                df['tick_type'] = 'Deal'
+
+            # 確保欄位存在
+            required_cols = ['datetime', 'close', 'volume', 'tick_type']
+            available_cols = [col for col in required_cols if col in df.columns]
+            df = df[available_cols]
+
+            df.to_csv(filepath, encoding='utf-8-sig', index=False)
+            logging.info(f"Ticks 檔案儲存成功！")
+        except Exception as e:
+            logging.error(f"儲存 Ticks CSV 檔案 '{filename}' 時發生錯誤: {e}")
 
     def save_to_firestore(self, df: pd.DataFrame, collection_name: str = "TXF_1min"):
         """

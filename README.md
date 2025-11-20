@@ -1,6 +1,6 @@
 # 台指期 1 分鐘 K 線資料自動下載器
 
-[![Python Project CI](https://github.com/weiyuanlo/TX/actions/workflows/python-ci.yml/badge.svg)](https://github.com/weiyuanlo/TX/actions/workflows/python-ci.yml)
+[![Python Tests](https://github.com/weiyuanlo/TX/actions/workflows/python-tests.yml/badge.svg)](https://github.com/weiyuanlo/TX/actions/workflows/python-tests.yml)
 
 ---
 
@@ -12,11 +12,10 @@
 *   **互動式選單**: 提供簡單易懂的文字選單，讓使用者輕鬆選擇下載區間與儲存方式。
 *   **多樣化儲存**: 支援將下載的資料儲存為本地 CSV 檔案，或寫入 Google Cloud Firestore。
 *   **安全設定**: 使用 `.env` 檔案來管理敏感的帳號資訊，避免將 API Keys 或密碼直接寫在程式碼中。
-*   **自動化測試**: 整合 GitHub Actions，在每次提交時自動執行單元測試，確保程式碼品質。
+*   **自動化測試**: 整合 GitHub Actions，在每次推送 (push) 或拉取請求 (pull request) 時，自動使用 `unittest` 框架執行單元測試，確保程式碼品質。
 *   **版本相容性**: 內建版本檢查機制，確保腳本在合適的 `shioaji` 版本下運行。
 *   **流量監控**: 登入後自動顯示 API 流量使用狀況，幫助使用者掌握用量。
 *   **穩健的資料獲取**: 採用「先下載逐筆成交 (Ticks)，再手動轉換為 K 線」的策略，以應對不同 API 版本的介面差異。
-
 *   **資料庫整合**: 支援將下載的資料寫入 Google Cloud Firestore，方便後續的雲端應用與分析。
 
 ## 系統需求
@@ -53,6 +52,14 @@
 
 ```bash
 python3 tx_downloader.py
+```
+
+## 如何執行測試
+
+若要手動執行本專案的單元測試，請在根目錄下運行以下指令：
+
+```bash
+python -m unittest discover tests/
 ```
 
 ---
