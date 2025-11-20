@@ -45,7 +45,7 @@ class TXFDownloader:
     """
     台指期 1 分 K 線資料自動下載器
     - 自動登入 Shioaji API
-    - 抓取近月/連續月合約
+    - 抓取連續月合約
     - 下載 1 分鐘 K 線資料
     - 清洗並儲存為 CSV 或寫入 Firestore
     """
@@ -64,7 +64,6 @@ class TXFDownloader:
         self.secret_key = secret_key
         self.cert_path = cert_path
         self.cert_pass = cert_pass
-        self.contract = None
         self.db = None  # Firestore client
 
     def login(self):
@@ -112,22 +111,6 @@ class TXFDownloader:
         except Exception as e:
             logging.error(f"Firestore 初始化失敗，請檢查金鑰檔案路徑是否正確: {e}")
             raise
-
-    def get_near_future_contract(self):
-        """取得台指期近月合約。"""
-        logging.info("正在查詢台指期近月合約...")
-        try:
-            # 遍歷所有 TXF 合約，找到第一個非價差的常規合約
-            futures_contracts = [c for c in self.api.Contracts.Futures.TXF if c.code[-2:] not in ["R1", "R2"]]
-            for future in sorted(futures_contracts, key=lambda c: c.delivery_date):
-                    self.contract = future
-                    logging.info(f"成功鎖定近月合約: {self.contract.code} ({self.contract.name})")
-                    return
-            if self.contract is None:
-                raise RuntimeError("在合約列表中找不到有效的台指期近月合約。" )
-        except Exception as e:
-            logging.error(f"查詢合約失敗: {e}")
-            raise
             
     @staticmethod
     def resample_ticks_to_1min_kbars(ticks_df: pd.DataFrame) -> pd.DataFrame:
@@ -155,162 +138,79 @@ class TXFDownloader:
         kbars_df.reset_index(inplace=True)
         return kbars_df
 
-    def fetch_data(self, days_to_fetch: int = 5) -> pd.DataFrame:
-        """
-        下載指定天數的 1 分鐘 K 線資料。
-
-        Args:
-            days_to_fetch (int): 要回溯下載的天數。預設為 5 天。
-
-        Returns:
-            pd.DataFrame: 包含 OHLCV 資料的 DataFrame，若無資料則為 None。
-        """
-        if not self.contract:
-            logging.error("尚未指定合約。")
-            return None
-
-        end_date = datetime.now().date()
-        start_date = end_date - timedelta(days=days_to_fetch)
-        
-        print(f"準備下載從 {start_date} 至 {end_date} 的逐筆成交資料並轉換為 1 分鐘 K 線...")
-
-        try: #<-- This try was misplaced in a previous version, this is the correct position
-            all_ticks_df = []
-            current_date = start_date
-            while current_date <= end_date:
-                date_str = current_date.strftime("%Y-%m-%d")
-                logging.info(f"正在下載 {date_str} 的 Ticks...")
-                try:
-                    ticks = self.api.ticks(
-                        contract=self.contract,
-                        date=date_str,
-                        query_type=sj.constant.TicksQueryType.AllDay
-                    )
-                    if ticks.ts:
-                        ticks_df = pd.DataFrame({**ticks})
-                        self.save_ticks_to_csv(ticks_df.copy(), self.contract.code, date_str)
-                        all_ticks_df.append(ticks_df)
-                except Exception as e:
-                    logging.warning(f"下載 {date_str} 的 Ticks 時發生錯誤: {e}")
-                current_date += timedelta(days=1)
-
-            if not all_ticks_df:
-                logging.warning(f"在指定時間範圍內 ({start_date} to {end_date}) 查無歷史資料。")
-                return None
-            
-            combined_ticks = pd.concat(all_ticks_df, ignore_index=True)
-            logging.info(f"成功下載 {len(combined_ticks)} 筆 Ticks 資料，現正轉換為 K 線...")
-            return self.resample_ticks_to_1min_kbars(combined_ticks)
-        except Exception as e:
-            logging.error(f"下載 K 線資料時發生錯誤: {e}")
-            return None
-
     def fetch_continuous_data(self, start_date: str, end_date: str) -> pd.DataFrame:
         """
-        下載指定日期區間的連續月 K 線資料。
-        透過自動換月邏輯，將不同月份的合約拼接成一筆連續資料。
-        此處的拼接邏輯為：一個合約的交易期間，是從上個合約到期日的隔天，到自己到期日當天。
+        下載指定日期區間的連續月資料。
+        - Ticks: 逐日下載並儲存。
+        - K-bars: 區間下載並回傳。
 
         Args:
             start_date (str): 開始日期 (YYYY-MM-DD).
             end_date (str): 結束日期 (YYYY-MM-DD).
 
         Returns:
-            pd.DataFrame: 包含拼接後 OHLCV 資料的 DataFrame。
+            pd.DataFrame: 包含 OHLCV 資料的 DataFrame，或在沒有資料時返回 None。
         """
-        all_contracts = sorted(
-            [c for c in self.api.Contracts.Futures.TXF if c.code[-2:] not in ["R1", "R2"]],
-            key=lambda c: c.delivery_date
-        )
-        if not all_contracts:
-            logging.error("找不到任何常規 TXF 合約。")
-            return None
-
         s_date = datetime.strptime(start_date, "%Y-%m-%d").date()
         e_date = datetime.strptime(end_date, "%Y-%m-%d").date()
-
-        query_plan = {}  # {contract_code: (contract_obj, start_range, end_range)}
         
-        start_contract_idx = -1
-        for i, contract in enumerate(all_contracts):
-            delivery_d = datetime.strptime(contract.delivery_date, "%Y/%m/%d").date()
-            if delivery_d >= s_date:
-                start_contract_idx = i
-                break
-        
-        if start_contract_idx == -1:
-            logging.error(f"找不到任何合約的到期日在 {s_date} 或之後。")
-            return None
+        logging.info(f"已鎖定連續月合約: {self.api.Contracts.Futures.TXF.TXFR1.code} ({self.api.Contracts.Futures.TXF.TXFR1.name})")
 
-        for i in range(start_contract_idx, len(all_contracts)):
-            current_contract = all_contracts[i]
-            delivery_d = datetime.strptime(current_contract.delivery_date, "%Y/%m/%d").date()
-
-            if i == start_contract_idx:
-                # 對於第一個相關合約，我們從使用者指定的 start_date 開始
-                range_start = s_date
-            else:
-                prev_contract = all_contracts[i-1]
-                prev_delivery_d = datetime.strptime(prev_contract.delivery_date, "%Y/%m/%d").date()
-                range_start = prev_delivery_d + timedelta(days=1)
-
-            range_end = delivery_d
-
-            effective_start = max(s_date, range_start)
-            effective_end = min(e_date, range_end)
-
-            if effective_start <= effective_end:
-                query_plan[current_contract.code] = (current_contract, str(effective_start), str(effective_end))
-
-            if delivery_d >= e_date:
-                break
-                
+        # --- Ticks 下載 ---
         all_ticks_df = []
-        logging.info("--- 開始執行下載計畫 ---")
-        for code, (contract, start, end) in query_plan.items():
-            logging.info(f"下載合約 {contract.code} 從 {start} 到 {end} 的資料...")
-            
-            current_date = datetime.strptime(start, "%Y-%m-%d").date()
-            end_date_loop = datetime.strptime(end, "%Y-%m-%d").date()
-            
-            while current_date <= end_date_loop:
-                date_str = current_date.strftime("%Y-%m-%d")
-                try:
-                    ticks = self.api.ticks(
-                        contract=contract,
-                        date=date_str,
-                        query_type=sj.constant.TicksQueryType.AllDay
-                    )
-                    if ticks.ts:
-                        ticks_df = pd.DataFrame({**ticks})
-                        self.save_ticks_to_csv(ticks_df.copy(), contract.code, date_str)
-                        all_ticks_df.append(ticks_df)
-                except Exception as e:
-                    logging.warning(f"下載合約 {code} 在 {date_str} 的 Ticks 時發生錯誤: {e}")
-                current_date += timedelta(days=1)
-
-        logging.info("--- 下載計畫執行完畢 ---\n")
-
-        if not all_ticks_df:
-            logging.warning("在指定的全區間內未下載到任何資料。")
-            return None
-
-        combined_ticks = pd.concat(all_ticks_df, ignore_index=True)
-
-        # 根據使用者要求，如果查詢區間大於一週，則將合併後的 Ticks 按週儲存
-        if (e_date - s_date).days > 7:
-            self.save_weekly_ticks_to_csv(combined_ticks.copy())
-
-        logging.info(f"全部 Ticks 下載完成，總共 {len(combined_ticks)} 筆，現正轉換為 K 線...")
+        logging.info("--- 開始執行 Ticks 下載計畫 ---")
         
-        continuous_df = self.resample_ticks_to_1min_kbars(combined_ticks)
-        if continuous_df is None or continuous_df.empty:
-            logging.warning("轉換 K 線後無有效資料。")
-            return None
+        current_date = s_date
+        while current_date <= e_date:
+            date_str = current_date.strftime("%Y-%m-%d")
+            logging.info(f"下載連續月合約 {self.api.Contracts.Futures.TXF.TXFR1.code} 在 {date_str} 的 Ticks 資料...")
+            try:
+                # 依照使用者規格修改：移除 query_type
+                ticks = self.api.ticks(
+                    contract=self.api.Contracts.Futures.TXF.TXFR1,
+                    date=date_str
+                )
+                if ticks.ts:
+                    ticks_df = pd.DataFrame({**ticks})
+                    actual_contract_code = ticks_df['code'][0] if not ticks_df.empty and 'code' in ticks_df.columns else self.api.Contracts.Futures.TXF.TXFR1.code
+                    self.save_ticks_to_csv(ticks_df.copy(), actual_contract_code, date_str)
+                    all_ticks_df.append(ticks_df)
+            except Exception as e:
+                logging.warning(f"下載連續月合約在 {date_str} 的 Ticks 時發生錯誤: {e}")
+            current_date += timedelta(days=1)
 
-        # 由於是從 Ticks 轉換，不需要再做去重和排序
-        logging.info(f"全部資料拼接完成，總共 {len(continuous_df)} 筆。")
-        return continuous_df
+        logging.info("--- Ticks 下載計畫執行完畢 ---\n")
+
+        if all_ticks_df:
+            combined_ticks = pd.concat(all_ticks_df, ignore_index=True)
+            if (e_date - s_date).days > 7:
+                self.save_weekly_ticks_to_csv(combined_ticks.copy())
+        else:
+            logging.warning("在指定的全區間內未下載到任何 Tick 資料。")
+
+        # --- K-bars 下載 ---
+        logging.info(f"--- 開始下載從 {start_date} 到 {end_date} 的 K 線資料 ---")
+        try:
+            # 依照使用者規格，直接使用 api.kbars
+            kbars = self.api.kbars(
+                contract=self.api.Contracts.Futures.TXF.TXFR1,
+                start=start_date,
+                end=end_date,
+            )
+            if not kbars.ts:
+                logging.warning("在指定區間內未下載到任何 K 線資料。")
+                return None
+
+            kbars_df = pd.DataFrame({**kbars})
+            # api.kbars 回傳的 ts 是 nanoseconds, 需要轉換為 datetime 物件以利後續處理
+            kbars_df['ts'] = pd.to_datetime(kbars_df['ts'])
+            
+            logging.info(f"K 線下載完成，總共 {len(kbars_df)} 筆。")
+            return kbars_df
+
+        except Exception as e:
+            logging.warning(f"下載連續月合約 K 線時發生錯誤: {e}")
+            return None
 
     @staticmethod
     def process_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -328,7 +228,7 @@ class TXFDownloader:
             return None
         
         logging.info("正在進行資料清洗...")
-        # 'ts' 欄位在 resample 後已經是 datetime 格式的 index，reset_index 後變回 'ts' 欄位
+        # 'ts' 欄位是 datetime 物件，將其改名為 'datetime' 並設為索引以進行時區轉換
         df = df.rename(columns={'ts': 'datetime'})
         df.set_index('datetime', inplace=True)
         df.index = df.index.tz_localize('UTC').tz_convert('Asia/Taipei')
