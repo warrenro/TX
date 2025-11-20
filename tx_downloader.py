@@ -20,6 +20,10 @@ except ImportError:
 from dotenv import load_dotenv
 load_dotenv()
 
+# --- 常數設定 ---
+API_USAGE_WARNING_THRESHOLD_MB = 400
+ESTIMATED_TICKS_MB_PER_DAY = 100  # 每日 Ticks 資料量估算 (MB)
+
 # --- Shioaji 版本檢查 ---
 # 這個腳本是針對 shioaji v1.0.0 ~ v1.1.x 開發的，因為不同版本間的 API 差異很大。
 REQUIRED_MIN_VERSION = "1.0.0"
@@ -74,8 +78,24 @@ class TXFDownloader:
             logging.info("API 登入成功。")
             
             # 查詢並顯示 API 流量資訊
-            usage = self.api.usage()
-            logging.info(f"API 流量狀態: 已查詢 {usage} ")
+            usage_info = self.api.usage()
+            logging.info(f"API 流量狀態: {usage_info}")
+
+            try:
+                # 解析回傳的流量字串，例如: "connections=1 bytes=40890319 limit_bytes=524288000 remaining_bytes=483397681"
+                parts = str(usage_info).split()
+                usage_bytes = 0
+                for part in parts:
+                    if 'bytes=' in part:
+                        usage_bytes = int(part.split('=')[1])
+                        break
+                
+                usage_mb = usage_bytes / (1024 * 1024)
+
+                if usage_mb > API_USAGE_WARNING_THRESHOLD_MB:
+                    logging.warning(f"API 用量警告: 目前已使用 {usage_mb:.2f} MB，已超過 {API_USAGE_WARNING_THRESHOLD_MB} MB 的閾值。")
+            except (ValueError, IndexError, AttributeError) as e:
+                logging.warning(f"無法解析 API 流量資訊: '{usage_info}'。錯誤: {e}")
 
         except Exception as e:
             logging.error(f"API 登入失敗: {e}")
