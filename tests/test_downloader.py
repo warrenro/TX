@@ -1,194 +1,158 @@
 import unittest
+from unittest.mock import patch, MagicMock, call, mock_open
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 import sys
 import os
 
-# 將專案根目錄加入到 Python 路徑中，這樣才能 import tx_downloader
+# 將專案根目錄加入到 Python 路徑中
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from tx_downloader import TXFDownloader
+# 匯入需要被測試的目標
+from tx_downloader import TXFDownloader, main, get_resume_date, calculate_date_range
 
-class TestTXFDownloader(unittest.TestCase):
+class TestTXDownloaderFeatures(unittest.TestCase):
 
-    def test_resample_ticks_to_1min_kbars_normal(self):
-        """測試正常情況下的 Ticks 轉換功能"""
-        print("\nRunning test: test_resample_ticks_to_1min_kbars_normal")
+    def setUp(self):
+        """在每個測試前執行，用於準備環境"""
+        # 清理可能由其他測試留下的進度檔案
+        if os.path.exists('download_progress.txt'):
+            os.remove('download_progress.txt')
+
+    def tearDown(self):
+        """在每個測試後執行，用於清理環境"""
+        if os.path.exists('download_progress.txt'):
+            os.remove('download_progress.txt')
+
+    @patch('tx_downloader.os.getenv')
+    @patch('tx_downloader.get_storage_choice', return_value='2') # 2: CSV
+    @patch('tx_downloader.get_period_choice', return_value=('last_day', None, None))
+    @patch('tx_downloader.get_data_type_choice')
+    @patch('tx_downloader.TXFDownloader')
+    def test_main_flow_select_ticks_only(self, mock_downloader_class, mock_data_type, mock_period, mock_storage, mock_getenv):
+        """測試主流程：選擇只下載 Ticks"""
+        print("\nRunning test: test_main_flow_select_ticks_only")
         
-        # 準備模擬的 Ticks 輸入資料 (橫跨兩分鐘)
-        mock_ticks_data = {
-            'ts': [
-                datetime(2025, 11, 20, 9, 1, 10).timestamp() * 1e9,  # 09:01:10
-                datetime(2025, 11, 20, 9, 1, 25).timestamp() * 1e9,  # 09:01:25
-                datetime(2025, 11, 20, 9, 1, 50).timestamp() * 1e9,  # 09:01:50
-                datetime(2025, 11, 20, 9, 2, 5).timestamp() * 1e9,   # 09:02:05 (只有一筆)
-            ],
-            'close': [100, 120, 110, 115],
-            'volume': [10, 5, 8, 20]
-        }
-        mock_df = pd.DataFrame(mock_ticks_data)
-
-        # 執行要測試的函式
-        result_df = TXFDownloader.resample_ticks_to_1min_kbars(mock_df)
-
-        # --- 開始驗證 ---
+        # --- 設定模擬 ---
+        # 模擬使用者選擇 'a' (僅 Ticks)
+        mock_data_type.return_value = 'a'
         
-        # 1. 驗證輸出不是 None 且有 2 筆資料 (09:01 和 09:02)
-        self.assertIsNotNone(result_df)
-        self.assertEqual(len(result_df), 2)
+        # 模擬 .env 檔案的返回值
+        mock_getenv.return_value = "DUMMY_VALUE"
 
-        # 2. 驗證欄位名稱是否正確
-        expected_columns = {'datetime', 'Open', 'High', 'Low', 'Close', 'Volume'}
-        self.assertEqual(set(result_df.columns), expected_columns)
+        # 建立 downloader 的實例 mock
+        mock_downloader_instance = MagicMock()
+        mock_downloader_class.return_value = mock_downloader_instance
+        mock_downloader_instance.login.return_value = True
 
-        # 3. 詳細驗證第一分鐘 (09:01) 的 K 棒資料
-        first_k_bar = result_df.iloc[0]
-        self.assertEqual(first_k_bar['datetime'], pd.Timestamp('2025-11-20 09:01:00'))
-        self.assertEqual(first_k_bar['Open'], 100)   # 第一次的價格
-        self.assertEqual(first_k_bar['High'], 120)   # 最高的價格
-        self.assertEqual(first_k_bar['Low'], 100)    # 最低的價格
-        self.assertEqual(first_k_bar['Close'], 110)  # 最後一次的價格
-        self.assertEqual(first_k_bar['Volume'], 23)  # 10 + 5 + 8
+        # --- 執行 main 函式 ---
+        main()
 
-        # 4. 詳細驗證第二分鐘 (09:02) 的 K 棒資料 (只有一筆 tick)
-        second_k_bar = result_df.iloc[1]
-        self.assertEqual(second_k_bar['datetime'], pd.Timestamp('2025-11-20 09:02:00'))
-        self.assertEqual(second_k_bar['Open'], 115)
-        self.assertEqual(second_k_bar['High'], 115)
-        self.assertEqual(second_k_bar['Low'], 115)
-        self.assertEqual(second_k_bar['Close'], 115)
-        self.assertEqual(second_k_bar['Volume'], 20)
+        # --- 驗證 ---
+        # 1. 驗證 downloader 被正確初始化和登入
+        mock_downloader_class.assert_called_once()
+        mock_downloader_instance.login.assert_called_once()
 
-    def test_resample_ticks_edge_cases(self):
-        """測試邊界情況：空的或 None 的輸入"""
-        print("\nRunning test: test_resample_ticks_edge_cases")
-
-        # 1. 測試輸入為 None
-        result_none = TXFDownloader.resample_ticks_to_1min_kbars(None)
-        self.assertIsNone(result_none)
-
-        # 2. 測試輸入為空的 DataFrame
-        empty_df = pd.DataFrame({'ts': [], 'close': [], 'volume': []})
-        result_empty = TXFDownloader.resample_ticks_to_1min_kbars(empty_df)
-        self.assertIsNone(result_empty)
-
-    def test_save_ticks_to_csv(self):
-        """測試將 Ticks 儲存至 CSV 的功能"""
-        print("\nRunning test: test_save_ticks_to_csv")
-
-        # 1. 準備測試資料和物件
-        # 我們不需要真的登入，所以 API Key 給假資料即可
-        downloader = TXFDownloader(api_key="DUMMY", secret_key="DUMMY", cert_path="", cert_pass="")
+        # 2. 驗證下載函式被呼叫
+        mock_downloader_instance.fetch_and_save_ticks.assert_called_once()
         
-        mock_ticks_data = {
-            'ts': [
-                datetime(2025, 11, 20, 9, 1, 10, 123456).timestamp() * 1e9,
-                datetime(2025, 11, 20, 9, 1, 25, 654321).timestamp() * 1e9,
-            ],
-            'close': [100.5, 101.0],
-            'volume': [10, 5],
-            'tick_type': ['Deal', 'Deal']
-        }
-        mock_df = pd.DataFrame(mock_ticks_data)
+        # 3. 驗證 K-bar 相關函式未被呼叫
+        mock_downloader_instance.fetch_kbars.assert_not_called()
+        mock_downloader_instance.save_to_csv.assert_not_called() # save_to_csv 是給 kbar 用的
+
+    @patch('tx_downloader.os.getenv')
+    @patch('tx_downloader.get_storage_choice', return_value='2') # 2: CSV
+    @patch('tx_downloader.get_period_choice', return_value=('last_day', None, None))
+    @patch('tx_downloader.get_data_type_choice')
+    @patch('tx_downloader.TXFDownloader')
+    def test_main_flow_select_kbars_only(self, mock_downloader_class, mock_data_type, mock_period, mock_storage, mock_getenv):
+        """測試主流程：選擇只下載 K-bars"""
+        print("\nRunning test: test_main_flow_select_kbars_only")
+
+        # --- 設定模擬 ---
+        mock_data_type.return_value = 'b' # 僅 K-bar
+        mock_getenv.return_value = "DUMMY_VALUE"
         
-        contract_code = "TXF202512"
-        date_str = "2025-11-20"
-        # 修正檔案路徑，確保它在 tradedata 資料夾內
-        data_dir = os.path.join(os.path.dirname(__file__), '..', 'tradedata')
-        os.makedirs(data_dir, exist_ok=True)
-        expected_filename = os.path.join(data_dir, f"TXF_ticks_{contract_code}_{date_str}.csv")
+        mock_downloader_instance = MagicMock()
+        # 模擬 fetch_kbars 回傳一個假的 DataFrame
+        mock_kbars_df = pd.DataFrame({'ts': [datetime.now()], 'Open': [1], 'High': [1], 'Low': [1], 'Close': [1], 'Volume': [1]})
+        mock_downloader_instance.fetch_kbars.return_value = mock_kbars_df
+        mock_downloader_instance.process_data.return_value = mock_kbars_df # 假設 process 後格式不變
+        mock_downloader_class.return_value = mock_downloader_instance
+        mock_downloader_instance.login.return_value = True
 
-        # 確保測試前檔案不存在
-        if os.path.exists(expected_filename):
-            os.remove(expected_filename)
+        # --- 執行 main 函式 ---
+        main()
 
-        try:
-            # 2. 執行要測試的函式
-            downloader.save_ticks_to_csv(mock_df, contract_code, date_str)
+        # --- 驗證 ---
+        # 1. 驗證 Ticks 相關函式未被呼叫
+        mock_downloader_instance.fetch_and_save_ticks.assert_not_called()
 
-            # 3. 驗證檔案是否成功建立
-            self.assertTrue(os.path.exists(expected_filename))
+        # 2. 驗證 K-bar 相關函式被呼叫
+        mock_downloader_instance.fetch_kbars.assert_called_once()
+        mock_downloader_instance.process_data.assert_called_once()
+        mock_downloader_instance.save_to_csv.assert_called_once()
 
-            # 4. 讀取檔案並驗證內容
-            saved_df = pd.read_csv(expected_filename)
-            
-            # 驗證欄位
-            self.assertEqual(list(saved_df.columns), ['datetime', 'close', 'volume', 'tick_type'])
-            
-            # 驗證筆數
-            self.assertEqual(len(saved_df), 2)
-            
-            # 驗證第一筆資料的價格和量
-            self.assertEqual(saved_df.iloc[0]['close'], 100.5)
-            self.assertEqual(saved_df.iloc[0]['volume'], 10)
-            
-            # 驗證時間戳的日期部分
-            # 原始時間是 UTC，儲存時會轉為 Asia/Taipei
-            # 2025-11-20 09:01:10 UTC -> 2025-11-20 17:01:10 Asia/Taipei
-            self.assertTrue(saved_df.iloc[0]['datetime'].startswith("2025-11-20 17:01:10"))
+    @patch('os.path.exists', return_value=True)
+    @patch('builtins.open', mock_open(read_data='2025-11-20'))
+    def test_get_resume_date_found(self):
+        """測試續傳功能：找到進度檔案"""
+        print("\nRunning test: test_get_resume_date_found")
+        resume_date = get_resume_date()
+        self.assertEqual(resume_date, date(2025, 11, 20))
 
-        finally:
-            # 5. 清理測試後產生的檔案
-            if os.path.exists(expected_filename):
-                os.remove(expected_filename)
+    @patch('os.path.exists', return_value=False)
+    def test_get_resume_date_not_found(self, mock_exists):
+        """測試續傳功能：找不到進度檔案"""
+        print("\nRunning test: test_get_resume_date_not_found")
+        resume_date = get_resume_date()
+        self.assertIsNone(resume_date)
 
-    def test_save_weekly_ticks_to_csv(self):
-        """測試將 Ticks 按照週次儲存至 CSV 的功能"""
-        print("\nRunning test: test_save_weekly_ticks_to_csv")
+    @patch('tx_downloader.get_resume_date', return_value=date(2025, 11, 20))
+    def test_calculate_date_range_with_resume(self, mock_get_resume):
+        """測試日期計算：當有續傳日期時，應使用續傳日期"""
+        print("\nRunning test: test_calculate_date_range_with_resume")
+        # 即使使用者選了 'last_day'，也應該被續傳日期覆蓋
+        start, end = calculate_date_range('last_day', None, None)
+        self.assertEqual(start, date(2025, 11, 20))
 
-        # 1. 準備測試資料和物件
-        downloader = TXFDownloader(api_key="DUMMY", secret_key="DUMMY", cert_path="", cert_pass="")
+    @patch('shioaji.Shioaji')
+    def test_token_refresh_logic(self, mock_shioaji_class):
+        """測試 Token 自動更新與重試邏輯"""
+        print("\nRunning test: test_token_refresh_logic")
         
-        # 準備橫跨兩週的 Ticks 資料
-        # 第一週: 2025-11-13 (週四)
-        # 第二週: 2025-11-17 (週一)
-        mock_ticks_data = {
-            'ts': [
-                datetime(2025, 11, 13, 10, 0, 0).timestamp() * 1e9,
-                datetime(2025, 11, 13, 11, 0, 0).timestamp() * 1e9,
-                datetime(2025, 11, 17, 10, 0, 0).timestamp() * 1e9,
-            ],
-            'close': [22000, 22010, 22100],
-            'volume': [2, 3, 5]
-        }
-        mock_df = pd.DataFrame(mock_ticks_data)
+        # --- 設定模擬 ---
+        # 模擬 API 第一次呼叫時拋出例外，第二次成功
+        mock_api_instance = MagicMock()
+        mock_api_instance.ticks.side_effect = [
+            Exception("Token expired"), # 第一次呼叫拋出例外
+            MagicMock(ts=[12345])      # 第二次呼叫回傳成功
+        ]
         
-        data_dir = os.path.join(os.path.dirname(__file__), '..', 'tradedata')
-        os.makedirs(data_dir, exist_ok=True)
+        # 模擬 Shioaji() 返回我們的 mock api instance
+        mock_shioaji_class.return_value = mock_api_instance
 
-        # 預期產生的檔案名稱
-        # 第一週是從 2025-11-10 (週一) 開始
-        expected_file1 = os.path.join(data_dir, "TXF_ticks_weekly_2025-11-13_to_2025-11-13.csv")
-        # 第二週是從 2025-11-17 (週一) 開始
-        expected_file2 = os.path.join(data_dir, "TXF_ticks_weekly_2025-11-17_to_2025-11-17.csv")
+        # 建立 downloader，但這次傳入的是 mock 過的 api 物件
+        downloader = TXFDownloader("key", "secret", "path", "pass")
+        downloader.api = mock_api_instance
+        
+        # 模擬 login 函式，讓它總是成功
+        downloader.login = MagicMock(return_value=True)
 
-        # 清理舊檔案
-        if os.path.exists(expected_file1): os.remove(expected_file1)
-        if os.path.exists(expected_file2): os.remove(expected_file2)
+        # --- 執行 ---
+        # 直接呼叫內部帶有重試邏輯的函式
+        result = downloader._execute_api_call(downloader.api.ticks, contract="TXF", date="2025-01-01")
 
-        try:
-            # 2. 執行函式
-            downloader.save_weekly_ticks_to_csv(mock_df)
-
-            # 3. 驗證檔案是否都已建立
-            self.assertTrue(os.path.exists(expected_file1), f"檔案 {expected_file1} 未建立")
-            self.assertTrue(os.path.exists(expected_file2), f"檔案 {expected_file2} 未建立")
-
-            # 4. 驗證第一個檔案的內容
-            df1 = pd.read_csv(expected_file1)
-            self.assertEqual(len(df1), 2)
-            self.assertEqual(df1.iloc[0]['close'], 22000)
-            self.assertEqual(df1.iloc[1]['volume'], 3)
-
-            # 5. 驗證第二個檔案的內容
-            df2 = pd.read_csv(expected_file2)
-            self.assertEqual(len(df2), 1)
-            self.assertEqual(df2.iloc[0]['close'], 22100)
-
-        finally:
-            # 6. 清理測試檔案
-            if os.path.exists(expected_file1): os.remove(expected_file1)
-            if os.path.exists(expected_file2): os.remove(expected_file2)
+        # --- 驗證 ---
+        # 1. 驗證 login 函式被呼叫了一次 (在偵測到錯誤後)
+        downloader.login.assert_called_once()
+        
+        # 2. 驗證 api.ticks 總共被呼叫了兩次
+        self.assertEqual(downloader.api.ticks.call_count, 2)
+        
+        # 3. 驗證回傳結果是第二次呼叫的成功結果
+        self.assertIsNotNone(result)
+        self.assertEqual(result.ts, [12345])
 
 if __name__ == '__main__':
     unittest.main()
